@@ -1,15 +1,15 @@
 const express = require("express");
 const cors = require("cors");
+const multer = require("multer");
+const upload = multer({ storage: multer.memoryStorage() });
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 
-const EBAY_APP_ID = process.env.EBAY_APP_ID;
 const EBAY_TOKEN_URL = "https://api.ebay.com/identity/v1/oauth2/token";
 const EBAY_SEARCH_URL = "https://api.ebay.com/buy/browse/v1/item_summary/search";
 
-// Get eBay OAuth token (Client Credentials flow - no user login needed)
 async function getEbayToken() {
   const credentials = Buffer.from(
     `${process.env.EBAY_APP_ID}:${process.env.EBAY_CERT_ID}`
@@ -28,7 +28,6 @@ async function getEbayToken() {
   return data.access_token;
 }
 
-// Search eBay sold listings for a single item
 async function searchEbaySold(query, token) {
   const params = new URLSearchParams({
     q: query,
@@ -46,7 +45,7 @@ async function searchEbaySold(query, token) {
   });
 
   const data = await response.json();
-  
+
   if (!data.itemSummaries || data.itemSummaries.length === 0) {
     return { avgPrice: null, soldCount: 0 };
   }
@@ -58,17 +57,14 @@ async function searchEbaySold(query, token) {
   if (prices.length === 0) return { avgPrice: null, soldCount: 0 };
 
   const avg = prices.reduce((a, b) => a + b, 0) / prices.length;
-  
+
   return {
     avgPrice: parseFloat(avg.toFixed(2)),
     soldCount: data.total || prices.length,
   };
 }
 
-// Normalize messy manifest descriptions using basic rules
-// (Claude API integration goes here in v2)
 function normalizeDescription(brand, description) {
-  // Clean up common abbreviations
   const cleaned = description
     .replace(/\bMNS\b/gi, "Men's")
     .replace(/\bLS\b/gi, "Long Sleeve")
@@ -84,15 +80,83 @@ function normalizeDescription(brand, description) {
     .replace(/\bWHT\b/gi, "White")
     .replace(/\bNVY\b/gi, "Navy");
 
-  // Build search query: brand + cleaned description
   const brandClean = brand && brand !== "—" ? brand : "";
   const query = `${brandClean} ${cleaned}`.trim();
-  
-  // Remove lot codes like "42S", "XL", size suffixes for better search
   return query.replace(/\b\d+[A-Z]{1,2}\b/g, "").replace(/\s+/g, " ").trim();
 }
 
-// Main endpoint: analyze a list of manifest items
+// Parse B-Stock CSV manifest
+function parseManifestCSV(csvText) {
+  const lines = csvText.split("\n").filter(l => l.trim());
+  if (lines.length < 2) return [];
+
+  const delimiter = lines[0].includes("\t") ? "\t" : ",";
+  const header = lines[0].split(delimiter).map(h => h.replace(/['"]/g, "").trim().toLowerCase());
+
+  const colIndex = (names) => {
+    for (const n of names) {
+      const i = header.findIndex(h => h.includes(n));
+      if (i !== -1) return i;
+    }
+    return -1;
+  };
+
+  const brandCol = colIndex(["brand"]);
+  const descCol = colIndex(["description", "item desc", "desc"]);
+  const qtyCol = colIndex(["qty", "quantity", "units"]);
+  const unitRetailCol = colIndex(["unit retail", "unit price", "retail price"]);
+  const extRetailCol = colIndex(["ext. retail", "ext retail", "extended"]);
+
+  const items = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(delimiter).map(c => c.replace(/['"]/g, "").trim());
+    if (cols.length < 3) continue;
+
+    const description = descCol !== -1 ? cols[descCol] : "";
+    const brand = brandCol !== -1 ? cols[brandCol] : "";
+    const qty = qtyCol !== -1 ? parseInt(cols[qtyCol]) || 1 : 1;
+    const unitRetail = unitRetailCol !== -1 ? parseFloat(cols[unitRetailCol]) || 0 : 0;
+    const extRetail = extRetailCol !== -1 ? parseFloat(cols[extRetailCol]) || 0 : unitRetail * qty;
+
+    if (!description && !brand) continue;
+    items.push({ brand, description, qty, unitRetail, extRetail });
+  }
+
+  return items
+    .filter(i => i.extRetail > 0)
+    .sort((a, b) => b.extRetail - a.extRetail)
+    .slice(0, 50);
+}
+
+// Parse CSV endpoint
+app.post("/parse", upload.single("file"), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+  const csvText = req.file.buffer.toString("utf-8");
+  const items = parseManifestCSV(csvText);
+
+  if (items.length === 0) {
+    return res.status(400).json({ error: "Could not parse manifest. Check file format." });
+  }
+
+  const totalUnits = items.reduce((s, i) => s + i.qty, 0);
+  const totalRetail = items.reduce((s, i) => s + i.extRetail, 0);
+  const brands = [...new Set(items.map(i => i.brand).filter(Boolean))];
+
+  res.json({
+    items,
+    summary: {
+      totalLines: items.length,
+      totalUnits,
+      totalRetail: parseFloat(totalRetail.toFixed(2)),
+      totalBrands: brands.length,
+      topBrands: brands.slice(0, 5),
+    }
+  });
+});
+
+// Analyze items with eBay pricing
 app.post("/analyze", async (req, res) => {
   const { items } = req.body;
 
@@ -108,7 +172,6 @@ app.post("/analyze", async (req, res) => {
       const query = normalizeDescription(item.brand, item.description);
       const ebayData = await searchEbaySold(query, token);
 
-      // Score the item based on eBay avg vs unit retail
       let score = "red";
       if (ebayData.avgPrice) {
         const ratio = ebayData.avgPrice / item.unitRetail;
@@ -124,8 +187,6 @@ app.post("/analyze", async (req, res) => {
         searchQuery: query,
       });
 
-      // Respect eBay rate limits: 5000 calls/day = ~1 call per 17s max
-      // For burst usage we add a small delay between calls
       await new Promise(r => setTimeout(r, 200));
     }
 
