@@ -229,4 +229,3 @@ app.listen(PORT, () => console.log("LotLens backend running on port " + PORT));
 
 Commit con el mensaje:
 ```
-fix: clean server.js full rewrite
