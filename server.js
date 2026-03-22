@@ -148,7 +148,6 @@ function parseManifestCSV(csvText) {
       sellerCategory: sellerCat,
     });
   }
-```
   }
 
   return items
