@@ -101,11 +101,17 @@ function parseManifestCSV(csvText) {
     return -1;
   };
 
-  const brandCol = colIndex(["brand"]);
-  const descCol = colIndex(["description", "item desc", "desc"]);
-  const qtyCol = colIndex(["qty", "quantity", "units"]);
+  const itemNumCol    = colIndex(["item #", "item#", "item number"]);
+  const lotIdCol      = colIndex(["lot id", "lot_id"]);
+  const palletIdCol   = colIndex(["pallet id", "pallet_id"]);
+  const brandCol      = colIndex(["brand"]);
+  const descCol       = colIndex(["description", "item desc", "desc"]);
+  const qtyCol        = colIndex(["qty", "quantity", "units"]);
   const unitRetailCol = colIndex(["unit retail", "unit price", "retail price"]);
-  const extRetailCol = colIndex(["ext. retail", "ext retail", "extended"]);
+  const extRetailCol  = colIndex(["ext. retail", "ext retail", "extended"]);
+  const conditionCol  = colIndex(["optoro condition", "condition"]);
+  const subcatCol     = colIndex(["subcategory"]);
+  const categoryCol   = colIndex(["seller category", "category"]);
 
   const items = [];
 
@@ -114,13 +120,35 @@ function parseManifestCSV(csvText) {
     if (cols.length < 3) continue;
 
     const description = descCol !== -1 ? cols[descCol] : "";
-    const brand = brandCol !== -1 ? cols[brandCol] : "";
-    const qty = qtyCol !== -1 ? parseInt(cols[qtyCol]) || 1 : 1;
-    const unitRetail = unitRetailCol !== -1 ? parseFloat(cols[unitRetailCol]) || 0 : 0;
-    const extRetail = extRetailCol !== -1 ? parseFloat(cols[extRetailCol]) || 0 : unitRetail * qty;
+    const brand       = brandCol !== -1 ? cols[brandCol] : "";
+    const qty         = qtyCol !== -1 ? parseInt(cols[qtyCol]) || 1 : 1;
+    const unitRetail  = unitRetailCol !== -1 ? parseFloat(cols[unitRetailCol]) || 0 : 0;
+    const extRetail   = extRetailCol !== -1 ? parseFloat(cols[extRetailCol]) || 0 : unitRetail * qty;
+
+    const itemNumber  = itemNumCol !== -1 ? cols[itemNumCol] : "—";
+    const lotId       = lotIdCol !== -1 ? cols[lotIdCol] : "—";
+    const palletId    = palletIdCol !== -1 ? cols[palletIdCol] : "—";
+    const condition   = conditionCol !== -1 ? cols[conditionCol] : "";
+    const subcategory = subcatCol !== -1 ? cols[subcatCol] : "";
+    const sellerCat   = categoryCol !== -1 ? cols[categoryCol] : "";
 
     if (!description && !brand) continue;
-    items.push({ brand, description, qty, unitRetail, extRetail });
+
+    items.push({
+      itemNumber,
+      lotId,
+      palletId,
+      brand,
+      description,
+      qty,
+      unitRetail,
+      extRetail,
+      condition,
+      subcategory,
+      sellerCategory: sellerCat,
+    });
+  }
+```
   }
 
   return items
