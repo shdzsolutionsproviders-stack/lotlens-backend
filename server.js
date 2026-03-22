@@ -85,7 +85,6 @@ function normalizeDescription(brand, description) {
   return query.replace(/\b\d+[A-Z]{1,2}\b/g, "").replace(/\s+/g, " ").trim();
 }
 
-// Parse B-Stock CSV manifest
 function parseManifestCSV(csvText) {
   const lines = csvText.split("\n").filter(l => l.trim());
   if (lines.length < 2) return [];
@@ -124,7 +123,6 @@ function parseManifestCSV(csvText) {
     const qty         = qtyCol !== -1 ? parseInt(cols[qtyCol]) || 1 : 1;
     const unitRetail  = unitRetailCol !== -1 ? parseFloat(cols[unitRetailCol]) || 0 : 0;
     const extRetail   = extRetailCol !== -1 ? parseFloat(cols[extRetailCol]) || 0 : unitRetail * qty;
-
     const itemNumber  = itemNumCol !== -1 ? cols[itemNumCol] : "—";
     const lotId       = lotIdCol !== -1 ? cols[lotIdCol] : "—";
     const palletId    = palletIdCol !== -1 ? cols[palletIdCol] : "—";
@@ -148,7 +146,6 @@ function parseManifestCSV(csvText) {
       sellerCategory: sellerCat,
     });
   }
-  }
 
   return items
     .filter(i => i.extRetail > 0)
@@ -156,7 +153,6 @@ function parseManifestCSV(csvText) {
     .slice(0, 50);
 }
 
-// Parse CSV endpoint
 app.post("/parse", upload.single("file"), (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
@@ -183,7 +179,6 @@ app.post("/parse", upload.single("file"), (req, res) => {
   });
 });
 
-// Analyze items with eBay pricing
 app.post("/analyze", async (req, res) => {
   const { items } = req.body;
 
@@ -224,10 +219,14 @@ app.post("/analyze", async (req, res) => {
   }
 });
 
-// Health check
 app.get("/", (req, res) => {
   res.json({ status: "LotLens API running", version: "1.0" });
 });
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`LotLens backend running on port ${PORT}`));
+app.listen(PORT, () => console.log("LotLens backend running on port " + PORT));
+```
+
+Commit con el mensaje:
+```
+fix: clean server.js full rewrite
