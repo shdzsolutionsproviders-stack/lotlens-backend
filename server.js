@@ -194,12 +194,13 @@ app.post("/analyze", async (req, res) => {
       const query = normalizeDescription(item.brand, item.description);
       const ebayData = await searchEbaySold(query, token);
 
-      let score = "red";
-      if (ebayData.avgPrice) {
-        const ratio = ebayData.avgPrice / item.unitRetail;
-        if (ratio >= 0.7 && ebayData.soldCount >= 10) score = "green";
-        else if (ratio >= 0.45 || ebayData.soldCount >= 5) score = "yellow";
-      }
+      let score = "nodata";
+if (ebayData.avgPrice) {
+  const ratio = ebayData.avgPrice / item.unitRetail;
+  if (ratio >= 0.7 && ebayData.soldCount >= 10) score = "green";
+  else if (ratio >= 0.45 || ebayData.soldCount >= 5) score = "yellow";
+  else score = "red";
+}
 
       results.push({
         ...item,
