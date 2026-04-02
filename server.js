@@ -85,12 +85,32 @@ function normalizeDescription(brand, description) {
   return query.replace(/\b\d+[A-Z]{1,2}\b/g, "").replace(/\s+/g, " ").trim();
 }
 
+function parseCSVLine(line) {
+  const result = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === "," && !inQuotes) {
+      result.push(current.trim());
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  result.push(current.trim());
+  return result;
+}
+
 function parseManifestCSV(csvText) {
   const lines = csvText.split("\n").filter(l => l.trim());
-  if (lines.length < 2) return [];
+  if (lines.length < 2) return { items: [], allItems: [] };
 
   const delimiter = lines[0].includes("\t") ? "\t" : ",";
-  const header = lines[0].split(delimiter).map(h => h.replace(/['"]/g, "").trim().toLowerCase());
+  const header = parseCSVLine(lines[0]).map(h => h.replace(/['"]/g, "").trim().toLowerCase());
 
   const colIndex = (names) => {
     for (const n of names) {
@@ -112,10 +132,13 @@ function parseManifestCSV(csvText) {
   const subcatCol     = colIndex(["subcategory"]);
   const categoryCol   = colIndex(["seller category", "category"]);
 
-  const items = [];
+  const allItems = [];
 
   for (let i = 1; i < lines.length; i++) {
-    const cols = lines[i].split(delimiter).map(c => c.replace(/['"]/g, "").trim());
+    const cols = delimiter === "\t"
+      ? lines[i].split("\t").map(c => c.replace(/['"]/g, "").trim())
+      : parseCSVLine(lines[i]);
+
     if (cols.length < 3) continue;
 
     const description = descCol !== -1 ? cols[descCol] : "";
@@ -131,46 +154,37 @@ function parseManifestCSV(csvText) {
     const sellerCat   = categoryCol !== -1 ? cols[categoryCol] : "";
 
     if (!description && !brand) continue;
+    if (extRetail <= 0) continue;
 
-    items.push({
-      itemNumber,
-      lotId,
-      palletId,
-      brand,
-      description,
-      qty,
-      unitRetail,
-      extRetail,
-      condition,
-      subcategory,
+    allItems.push({
+      itemNumber, lotId, palletId, brand, description,
+      qty, unitRetail, extRetail, condition, subcategory,
       sellerCategory: sellerCat,
     });
   }
 
-  return items
-    .filter(i => i.extRetail > 0)
-    .sort((a, b) => b.extRetail - a.extRetail)
-    .slice(0, 50);
+  const sorted = allItems.sort((a, b) => b.extRetail - a.extRetail);
+  return { items: sorted.slice(0, 50), allItems: sorted };
 }
 
 app.post("/parse", upload.single("file"), (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
   const csvText = req.file.buffer.toString("utf-8");
-  const items = parseManifestCSV(csvText);
+  const { items, allItems } = parseManifestCSV(csvText);
 
   if (items.length === 0) {
     return res.status(400).json({ error: "Could not parse manifest. Check file format." });
   }
 
-  const totalUnits = items.reduce((s, i) => s + i.qty, 0);
-  const totalRetail = items.reduce((s, i) => s + i.extRetail, 0);
-  const brands = [...new Set(items.map(i => i.brand).filter(Boolean))];
+  const totalUnits = allItems.reduce((s, i) => s + i.qty, 0);
+  const totalRetail = allItems.reduce((s, i) => s + i.extRetail, 0);
+  const brands = [...new Set(allItems.map(i => i.brand).filter(Boolean))];
 
   res.json({
     items,
     summary: {
-      totalLines: items.length,
+      totalLines: allItems.length,
       totalUnits,
       totalRetail: parseFloat(totalRetail.toFixed(2)),
       totalBrands: brands.length,
@@ -195,12 +209,12 @@ app.post("/analyze", async (req, res) => {
       const ebayData = await searchEbaySold(query, token);
 
       let score = "nodata";
-if (ebayData.avgPrice) {
-  const ratio = ebayData.avgPrice / item.unitRetail;
-  if (ratio >= 0.7 && ebayData.soldCount >= 10) score = "green";
-  else if (ratio >= 0.45 || ebayData.soldCount >= 5) score = "yellow";
-  else score = "red";
-}
+      if (ebayData.avgPrice) {
+        const ratio = ebayData.avgPrice / item.unitRetail;
+        if (ratio >= 0.7 && ebayData.soldCount >= 10) score = "green";
+        else if (ratio >= 0.45 || ebayData.soldCount >= 5) score = "yellow";
+        else score = "red";
+      }
 
       results.push({
         ...item,
