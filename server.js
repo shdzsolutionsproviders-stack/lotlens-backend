@@ -211,7 +211,11 @@ app.post("/analyze", async (req, res) => {
       let score = "nodata";
       if (ebayData.avgPrice) {
         const ratio = ebayData.avgPrice / item.unitRetail;
-        if (ratio >= 0.7 && ebayData.soldCount >= 10) score = "green";
+        if (ratio < 0.05) {
+          score = "nodata";
+          ebayData.avgPrice = null;
+          ebayData.soldCount = 0;
+        } else if (ratio >= 0.7 && ebayData.soldCount >= 10) score = "green";
         else if (ratio >= 0.45 || ebayData.soldCount >= 5) score = "yellow";
         else score = "red";
       }
